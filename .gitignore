@@ -1,0 +1,14 @@
+.env
+.env.local
+.work/
+logs/
+__pycache__/
+*.pyc
+assets/fonts/*.ttf
+web/node_modules
+web/.next
+.venv/
+.claude/
+*.lnk
+*.vbs
+*.tsbuildinfo
