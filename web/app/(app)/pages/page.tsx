@@ -174,6 +174,17 @@ function PageSheet({ page, styles, conns, onClose, onSaved }: {
   const [busy, setBusy] = useState(false);
   const [confirmDelete, setConfirmDelete] = useState(false);
   const set = <K extends keyof Page>(k: K, v: Page[K]) => setP((x) => ({ ...x, [k]: v }));
+  const owner = me.role === "owner";
+  const [cap, setCap] = useState<{ footer: string; hashtags: string } | null>(null);
+  const [allCaps, setAllCaps] = useState<Record<string, { footer?: string; hashtags?: string[] }>>({});
+  useEffect(() => {
+    supabase().from("settings").select("value").eq("key", "page_captions").maybeSingle().then(({ data }) => {
+      const all = (data?.value as Record<string, { footer?: string; hashtags?: string[] }> | null) ?? {};
+      setAllCaps(all);
+      const mine = all[page.id] ?? {};
+      setCap({ footer: mine.footer ?? "", hashtags: (mine.hashtags ?? []).join(" ") });
+    });
+  }, [page.id]);
 
   async function save() {
     if (p.enabled && !p.categories.length) return toast("เลือกหมวดเนื้อหาอย่างน้อย 1 หมวด");
@@ -184,6 +195,11 @@ function PageSheet({ page, styles, conns, onClose, onSaved }: {
       post_window_start: shortTime(p.post_window_start), post_window_end: shortTime(p.post_window_end),
       style_id: p.style_id, require_approval: p.require_approval,
     }).eq("id", p.id);
+    if (!error && owner && cap) {
+      const tags = cap.hashtags.split(/[\s,]+/).map((t) => t.trim()).filter(Boolean).map((t) => (t.startsWith("#") ? t : `#${t}`));
+      const err = await saveSetting("page_captions", { ...allCaps, [p.id]: { footer: cap.footer.trim(), hashtags: tags } });
+      if (err) toast(err);
+    }
     setBusy(false);
     if (error) return toast(error.message);
     toast("บันทึกแผนของเพจแล้ว มีผลตั้งแต่รอบวางแผนถัดไป");
@@ -237,6 +253,22 @@ function PageSheet({ page, styles, conns, onClose, onSaved }: {
         </div>
       </div>
       <p className="note">Facebook แนะนำไม่เกิน 8 Reels ต่อเพจต่อวัน ระบบจำกัดไว้ที่ 8</p>
+
+      {owner && cap && <>
+        <div className="section-label">คำบรรยายของเพจนี้</div>
+        <div className="group">
+          <div className="row" style={{ flexDirection: "column", alignItems: "stretch", gap: 6 }}>
+            <label htmlFor="cap-footer">ข้อความท้ายโพสต์<div className="sub">ต่อท้ายคำบรรยายทุกโพสต์ของเพจนี้ เช่น ชวนกดติดตาม</div></label>
+            <textarea id="cap-footer" className="field" style={{ background: "var(--fill)", minHeight: 70 }} value={cap.footer}
+              placeholder="กดติดตามเพจ เพื่อไม่พลาดคลิปดีๆ ทุกวัน" onChange={(e) => setCap({ ...cap, footer: e.target.value })} />
+          </div>
+          <div className="row" style={{ flexDirection: "column", alignItems: "stretch", gap: 6 }}>
+            <label htmlFor="cap-tags">แฮชแท็กประจำเพจ<div className="sub">คั่นด้วยเว้นวรรค ต่อท้ายแฮชแท็กของคลิป</div></label>
+            <input id="cap-tags" className="field" style={{ background: "var(--fill)" }} value={cap.hashtags}
+              placeholder="#ชื่อเพจ #ข้อคิด" onChange={(e) => setCap({ ...cap, hashtags: e.target.value })} />
+          </div>
+        </div>
+      </>}
 
       <div className="section-label">การเชื่อมต่อ Facebook</div>
       <div className="group">

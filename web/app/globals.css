@@ -410,3 +410,24 @@ textarea.field { resize: vertical; min-height: 110px; line-height: 1.5; }
 .check-row input:checked + .checkmark { background: var(--green); box-shadow: none; }
 .check-row input:checked + .checkmark::after { content: ""; width: 6px; height: 11px; border: solid #fff; border-width: 0 2.2px 2.2px 0; transform: translateY(-1px) rotate(45deg); }
 .check-row input:focus-visible + .checkmark { outline: 2px solid var(--blue); outline-offset: 2px; }
+
+/* ── Calendar ── */
+.cal { display: flex; flex-direction: column; gap: 12px; }
+.cal-day { background: var(--card); border-radius: var(--r-card); padding: 14px 18px; box-shadow: 0 0 0 0.5px var(--sep); display: flex; flex-direction: column; gap: 8px; }
+.cal-day.today { box-shadow: 0 0 0 2px var(--blue); }
+.cal-head { display: flex; justify-content: space-between; align-items: baseline; }
+.cal-item { display: flex; align-items: center; gap: 10px; font-size: 14px; }
+.cal-item .mono { width: 44px; font-size: 13px; }
+.cal-item i { width: 8px; height: 8px; border-radius: 50%; flex-shrink: 0; }
+.cal-item .grow { flex: 1; min-width: 0; }
+.cal-topic { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.cal-item .sub { font-size: 12px; color: var(--muted); }
+
+/* ── A/B results ── */
+.ab-list { display: flex; flex-direction: column; gap: 10px; }
+.ab-row { display: flex; flex-direction: column; gap: 4px; }
+.ab-row + .ab-row { padding-top: 10px; box-shadow: inset 0 0.5px 0 var(--sep); }
+.ab-row div { display: flex; align-items: center; gap: 8px; font-size: 14px; padding: 6px 10px; border-radius: 10px; background: var(--fill); }
+.ab-row div.win { background: var(--green-tint); }
+.ab-row div span { font-weight: 700; font-size: 12px; width: 18px; height: 18px; border-radius: 50%; display: grid; place-items: center; background: var(--card); flex-shrink: 0; }
+.ab-row div b { margin-left: auto; font-variant-numeric: tabular-nums; }

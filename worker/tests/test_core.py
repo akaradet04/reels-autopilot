@@ -212,6 +212,34 @@ def test_script_writer_backup_order():
         llm.db.secret, llm._gemini, llm._openai_compatible = old_secret, old_gemini, old_compat
 
 
+def test_learning_weights_shift_the_category_mix():
+    page = {"id": "solo", "enabled": True, "categories": ["dharma", "health", "law"], "clips_per_day": 8,
+            "post_window_start": "07:00", "post_window_end": "22:00", "style_id": SPIRIT}
+    day, now = date(2026, 11, 19), datetime(2026, 11, 19, 0, 30, tzinfo=TZ)
+    even = plan_day([page], day, now, rng=random.Random(3))
+    counts = {c: sum(1 for x in even if x["category"] == c) for c in page["categories"]}
+    assert max(counts.values()) - min(counts.values()) <= 1, counts
+    tuned = plan_day([page], day, now, rng=random.Random(3), weights={"solo": {"dharma": 2.5, "law": 0.4}})
+    counts = {c: sum(1 for x in tuned if x["category"] == c) for c in page["categories"]}
+    assert counts["dharma"] > counts["health"] > counts["law"] >= 1, counts
+
+
+def test_banned_words_are_caught():
+    from worker.scriptwriter import _banned_hit, _banned_item
+    data = {"hook": "ข่าวการเมืองร้อน", "segments": [{"say": "เรื่องหวย"}], "cta": {"say": "แชร์"}, "captions": ["x"]}
+    assert _banned_hit(data, ["หวย"]) == ["หวย"]
+    assert _banned_hit(data, ["คาสิโน"]) == []
+    assert _banned_item({"title": "ผลหวยงวดนี้"}, ["หวย"])
+
+
+def test_ab_variant_picks_the_right_video():
+    from worker.jobs import Tick
+    clip = {"video_path": "videos/a.mp4", "script": {"ab": {"video_path": "videos/a-b.mp4", "posts": {"p1": "A", "p2": "B"}}}}
+    assert Tick.video_for({"id": "p1"}, clip) == "videos/a.mp4"
+    assert Tick.video_for({"id": "p2"}, clip) == "videos/a-b.mp4"
+    assert Tick.video_for({"id": "p3"}, {"video_path": "videos/c.mp4", "script": {}}) == "videos/c.mp4"
+
+
 if __name__ == "__main__":
     for name, fn in list(globals().items()):
         if name.startswith("test_"):

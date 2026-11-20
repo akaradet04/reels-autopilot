@@ -1,6 +1,7 @@
 "use client";
 
 import Link from "next/link";
+import { saveSetting } from "@/lib/settings";
 
 import { useState } from "react";
 import { useMe } from "@/components/Shell";
@@ -45,6 +46,12 @@ export default function SettingsPage() {
   const fb = useLoad(() => api<{ configured: boolean; redirect_uri: string }>("/api/facebook/status", "GET"));
   const bot = useLoad(() => (owner ? api<{ bot: string | null }>("/api/telegram/setup", "GET") : Promise.resolve({ bot: null })));
 
+  async function saveGrowth(key: string, value: boolean) {
+    setData((d) => d && { ...d, s: { ...d.s, [key]: value } });
+    const err = await saveSetting(key, value);
+    if (err) { toast(err); reload(); } else toast("บันทึกแล้ว");
+  }
+
   async function setSetting(key: string, value: unknown) {
     setData((d) => d && { ...d, s: { ...d.s, [key]: value } });
     const { error } = await supabase().from("settings").update({ value }).eq("key", key);
@@ -68,7 +75,17 @@ export default function SettingsPage() {
       <div className="group">
         <Link href="/status" className="row chev"><div className="grow">สถานะระบบ<div className="sub">เครื่องผลิตคลิป แบนด์วิดท์ งานที่ล้มเหลว</div></div></Link>
         <Link href="/styles" className="row chev"><div className="grow">สไตล์คลิป<div className="sub">สี เสียง พื้นหลัง โลโก้</div></div></Link>
+        <Link href="/topics" className="row chev"><div className="grow">คลังหัวข้อและคำต้องห้าม<div className="sub">หัวข้อที่อยากให้ทำก่อน และคำที่ห้ามใช้</div></div></Link>
         {owner && <Link href="/backup" className="row chev"><div className="grow">สำรองและย้ายระบบ<div className="sub">ไฟล์สำรอง และเช็กลิสต์ก่อนเลิกใช้คอมนี้</div></div></Link>}
+      </div>
+
+      {/* ── Growth ── */}
+      <div className="section-label">ให้เพจโตเร็วขึ้น</div>
+      <div className="group">
+        <div className="row"><div className="grow">ระบบเรียนรู้จากสถิติ<div className="sub" style={{ whiteSpace: "normal" }}>เพิ่มคลิปหมวดที่คนดูเยอะของแต่ละเพจ เริ่มทำงานเมื่อเพจมีสถิติ 10 คลิปขึ้นไป</div></div>
+          <Switch label="ระบบเรียนรู้" checked={s.learning_enabled !== false} disabled={!owner} onChange={(v) => saveGrowth("learning_enabled", v)} /></div>
+        <div className="row"><div className="grow">ทดสอบหัวคลิป A/B<div className="sub" style={{ whiteSpace: "normal" }}>คลิปที่ลงหลายเพจ ทำหัวเรื่อง 2 แบบสลับเพจ แล้วดูผลในหน้าผลงาน ใช้พื้นที่เก็บไฟล์เพิ่ม แต่ไม่เพิ่มแบนด์วิดท์</div></div>
+          <Switch label="ทดสอบหัวคลิป" checked={Boolean(s.ab_test_hooks)} disabled={!owner} onChange={(v) => saveGrowth("ab_test_hooks", v)} /></div>
       </div>
 
       {/* ── Posting ── */}

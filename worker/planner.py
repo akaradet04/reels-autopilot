@@ -31,7 +31,10 @@ def _t(v) -> time:
 
 
 def plan_day(pages: list[dict], day: date, now: datetime, max_per_page: int = 8,
-             gap: tuple[int, int] = (20, 40), rng: random.Random | None = None) -> list[dict]:
+             gap: tuple[int, int] = (20, 40), rng: random.Random | None = None,
+             weights: dict[str, dict[str, float]] | None = None) -> list[dict]:
+    """weights: page_id -> category -> how well it performs (1.0 = average). Categories that perform
+    get a bigger share of that page's clips; without weights every category gets an equal share."""
     rng = rng or random.Random()
     windows, remaining, used = {}, {}, {}
     for p in pages:
@@ -51,8 +54,11 @@ def plan_day(pages: list[dict], day: date, now: datetime, max_per_page: int = 8,
         top = max(remaining.values())
         lead = rng.choice([pid for pid, v in remaining.items() if v == top])
         counts = used[lead]
-        low = min(counts.values())
-        cat = rng.choice([c for c, n in counts.items() if n == low])
+        w = (weights or {}).get(lead) or {}
+        # Every category gets one clip first, so a weak one keeps being re-tested; then shares follow weights.
+        share = {c: (n / max(0.05, float(w.get(c, 1.0))) if n else -1.0) for c, n in counts.items()}
+        low = min(share.values())
+        cat = rng.choice([c for c, v in share.items() if abs(v - low) < 1e-9])
         style = by_id[lead].get("style_id")
         group = [pid for pid in by_id
                  if remaining[pid] > 0 and cat in by_id[pid]["categories"]

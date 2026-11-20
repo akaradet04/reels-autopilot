@@ -13,21 +13,28 @@ interface StatRow {
   post_id: string; page_id: string; fetched_at: string; plays: number | null; reach: number | null;
   avg_watch_sec: number | null; likes: number | null; comments: number | null; shares: number | null;
   follows: number | null; error: string | null;
-  clip_posts: { posted_at: string | null; clip_id: string; clips: { topic: string | null; category: string; thumb_path: string | null; duration_sec: number | null } | null } | null;
+  clip_posts: { posted_at: string | null; clip_id: string; clips: {
+    topic: string | null; category: string; thumb_path: string | null; duration_sec: number | null;
+    hook: string | null; hook_b: string | null; ab: { posts?: Record<string, string> } | null;
+  } | null } | null;
 }
-interface Data { pages: PageRow[]; days: DayRow[]; stats: StatRow[]; posted: number; missing: boolean }
+interface Data {
+  pages: PageRow[]; days: DayRow[]; stats: StatRow[]; posted: number; missing: boolean;
+  weights: Record<string, Record<string, number>>;
+}
 
 async function load(range: number): Promise<Data> {
   const db = supabase();
   const since = new Date(Date.now() - range * 86400000);
   const sinceDay = new Intl.DateTimeFormat("en-CA", { timeZone: "Asia/Bangkok" }).format(since);
-  const [pages, days, stats, posted] = await Promise.all([
+  const [pages, days, stats, posted, state] = await Promise.all([
     db.from("pages").select("id,name,picture_url,followers,enabled").order("followers", { ascending: false }),
     db.from("page_stats").select("page_id,day,followers").gte("day", sinceDay).order("day"),
     db.from("post_stats")
-      .select("*, clip_posts!inner(posted_at,clip_id,clips(topic,category,thumb_path,duration_sec))")
+      .select("*, clip_posts!inner(posted_at,clip_id,clips(topic,category,thumb_path,duration_sec,hook:script->>hook,hook_b:script->>hook_b,ab:script->ab))")
       .gte("clip_posts.posted_at", since.toISOString()).limit(1000),
     db.from("clip_posts").select("id", { count: "exact", head: true }).eq("status", "posted").gte("posted_at", since.toISOString()),
+    db.from("settings").select("value").eq("key", "worker_state").maybeSingle(),
   ]);
   if (pages.error) throw new Error(pages.error.message);
   // Tables missing = the stats SQL has not been run yet. Show a friendly note instead of an error.
@@ -38,6 +45,7 @@ async function load(range: number): Promise<Data> {
     stats: ((stats.data ?? []) as StatRow[]).filter((s) => !s.error),
     posted: posted.count ?? 0,
     missing,
+    weights: ((state.data?.value as { learning?: { weights?: Data["weights"] } } | null)?.learning?.weights) ?? {},
   };
 }
 
@@ -97,7 +105,23 @@ export default function Stats() {
       return { p, n: xs.length, plays: sum(xs.map((x) => x.plays)), avgPlays: avg(xs.map((x) => x.plays)), gained: g };
     });
 
+    // A/B: same clip, headline A on some pages and B on others.
+    const abMap = new Map<string, { hook: string; hook_b: string; a: number[]; b: number[] }>();
+    stats.forEach((s) => {
+      const c = s.clip_posts?.clips;
+      const v = c?.ab?.posts?.[s.post_id];
+      if (!c || !v || !c.hook_b || s.plays == null) return;
+      const k = s.clip_posts!.clip_id;
+      const g = abMap.get(k) ?? { hook: c.hook ?? "", hook_b: c.hook_b, a: [], b: [] };
+      (v === "B" ? g.b : g.a).push(s.plays);
+      abMap.set(k, g);
+    });
+    const abTests = [...abMap.values()].filter((g) => g.a.length && g.b.length)
+      .map((g) => ({ ...g, pa: avg(g.a) ?? 0, pb: avg(g.b) ?? 0 }));
+    const weights = pageId === "all" ? null : data.weights[pageId] ?? null;
+
     return {
+      abTests, weights,
       pages, stats, series, followersNow, gained, ranked, catRows, slotRows, perPage,
       plays: sum(stats.map((s) => s.plays)), reach: sum(stats.map((s) => s.reach)),
       follows: sum(stats.map((s) => s.follows)), watch: avg(stats.map((s) => s.avg_watch_sec)),
@@ -187,6 +211,33 @@ export default function Stats() {
           </div>
 
           <div className="dash-side">
+            {view.abTests.length > 0 && (
+              <div className="card">
+                <div className="card-head"><b>ทดสอบหัวคลิป A/B</b>
+                  <span className="muted small">B ชนะ {view.abTests.filter((t) => t.pb > t.pa).length}/{view.abTests.length}</span></div>
+                <div className="ab-list">
+                  {view.abTests.slice(0, 6).map((t, i) => (
+                    <div key={i} className="ab-row">
+                      <div className={t.pa >= t.pb ? "win" : ""}><span>A</span>{t.hook}<b>{compact(Math.round(t.pa))}</b></div>
+                      <div className={t.pb > t.pa ? "win" : ""}><span>B</span>{t.hook_b}<b>{compact(Math.round(t.pb))}</b></div>
+                    </div>
+                  ))}
+                </div>
+                <p className="muted small" style={{ margin: 0 }}>ตัวเลข = ยอดเล่นเฉลี่ย ดูว่าหัวเรื่องแบบไหนคนหยุดดูมากกว่า</p>
+              </div>
+            )}
+            {view.weights && (
+              <div className="card">
+                <div className="card-head"><b>ระบบเรียนรู้</b><span className="muted small">สัดส่วนหมวดของเพจนี้</span></div>
+                <div className="tags" style={{ gap: 6 }}>
+                  {Object.entries(view.weights).sort((a, b) => b[1] - a[1]).map(([c, w]) => (
+                    <span key={c} className={`tag ${w > 1.1 ? "green" : w < 0.9 ? "orange" : ""}`} style={{ fontSize: 13, padding: "4px 10px" }}>
+                      {catShort(c)} ×{w.toFixed(1)}</span>
+                  ))}
+                </div>
+                <p className="muted small" style={{ margin: 0 }}>หมวดที่ได้ ×มากกว่า 1 จะได้คลิปมากขึ้น ทุกหมวดยังได้อย่างน้อย 1 คลิปต่อวันเพื่อทดสอบต่อ</p>
+              </div>
+            )}
             <div className="card">
               <div className="card-head"><b>หมวดที่ได้ผล</b><span className="muted small">ยอดเล่นเฉลี่ยต่อคลิป</span></div>
               <Bars rows={view.catRows.map((r) => ({ label: catShort(r.c), sub: `${r.n} คลิป`, v: r.plays }))} />

@@ -66,6 +66,10 @@ class Tick:
         self.auto = bool(self.s.get("automation_enabled", True))
         self.providers = self.s.get("providers") or {}
         self.approval_cats = set(self.s.get("approval_categories") or [])
+        self.page_captions = self.s.get("page_captions") or {}
+        self.banned = [w for w in (self.s.get("banned_terms") or []) if isinstance(w, str)]
+        self.ab_on = bool(self.s.get("ab_test_hooks", False))
+        self.learning_on = bool(self.s.get("learning_enabled", True))
         self.billing_day = int(self.s.get("billing_day") or 18)
         self.usage = self._usage()
         self.state["usage"] = self.usage
@@ -169,7 +173,10 @@ class Tick:
             return
         pages = db.table("pages").select("*").eq("enabled", True).execute().data
         gap = self.s.get("page_gap_minutes") or [20, 40]
-        plan = plan_day(pages, self.now.date(), self.now, int(self.s.get("max_posts_per_page", 8)), tuple(gap))
+        weights = self.category_weights([p["id"] for p in pages]) if self.learning_on else {}
+        self.state["learning"] = {"date": today, "weights": weights}
+        plan = plan_day(pages, self.now.date(), self.now, int(self.s.get("max_posts_per_page", 8)), tuple(gap),
+                        weights=weights)
         limit = self.daily_post_budget()
         if limit and plan:
             allow, per_post = limit
@@ -238,8 +245,11 @@ class Tick:
             recent = [r["topic"] for r in db.table("clips").select("topic").eq("category", clip["category"])
                       .gte("created_at", since).not_.is_("topic", "null").limit(60).execute().data]
 
+            topic = clip.get("topic") or self.take_banked_topic(cid, clip["category"])
+            ab = self.ab_on and len(posts) >= 2
             script = scriptwriter.write(clip["category"], style, len(posts), self.providers, recent,
-                                        topic=clip.get("topic"), feeds=self.s.get("news_feeds") or [])
+                                        topic=topic, feeds=self.s.get("news_feeds") or [],
+                                        banned=self.banned, hook_b=ab)
             script["stamp"] = thai_stamp(self.now)
             texts = [seg["say"] for seg in script["segments"]] + [script["cta"]["say"]]
             voice, spans = tts.voice_segments(texts, style.get("voice", "female"), style.get("voice_rate", "+0%"),
@@ -264,6 +274,22 @@ class Tick:
                 raise RuntimeError(f"คลิปยาว {duration:.0f} วินาที เกินที่ Reels รับได้ (90 วินาที)")
             thumb = render.thumbnail(out, work / "thumb.jpg")
             script["bytes"] = out.stat().st_size
+            if ab and script.get("hook_b"):
+                try:
+                    work_b = work / "b"
+                    work_b.mkdir(exist_ok=True)
+                    out_b = work_b / "clip.mp4"
+                    render.render({**script, "hook": script["hook_b"]}, voice, spans, bg, kind, style, logo, work_b, out_b)
+                    thumb_b = render.thumbnail(out_b, work_b / "thumb.jpg")
+                    # Alternate pages in posting order: A, B, A, B...
+                    script["ab"] = {
+                        "video_path": db.upload(out_b, f"videos/{cid}-b.mp4", "video/mp4"),
+                        "thumb_path": db.upload(thumb_b, f"thumbs/{cid}-b.jpg", "image/jpeg"),
+                        "bytes": out_b.stat().st_size,
+                        "posts": {p["id"]: ("A" if i % 2 == 0 else "B") for i, p in enumerate(posts)},
+                    }
+                except Exception as e:  # the test is optional; the clip still goes out with headline A
+                    log.warning("variant B failed: %s", e)
             video_path = db.upload(out, f"videos/{cid}.mp4", "video/mp4")
             thumb_path = db.upload(thumb, f"thumbs/{cid}.jpg", "image/jpeg")
 
@@ -278,7 +304,11 @@ class Tick:
             tags = " ".join(script.get("hashtags") or [])
             credit = f"\n\nที่มา: {', '.join(script['sources'])}" if script.get("sources") else ""
             for i, p in enumerate(posts):
-                caption = f"{script['captions'][i]}{credit}\n\n{tags}".strip()
+                pc = self.page_captions.get(p["page_id"]) or {}
+                page_tags = [t if t.startswith("#") else f"#{t}" for t in (pc.get("hashtags") or []) if isinstance(t, str) and t.strip()]
+                all_tags = " ".join(dict.fromkeys((script.get("hashtags") or []) + page_tags))
+                footer = f"\n\n{pc['footer'].strip()}" if isinstance(pc.get("footer"), str) and pc["footer"].strip() else ""
+                caption = f"{script['captions'][i]}{credit}{footer}\n\n{all_tags}".strip()
                 needs = (p.get("pages") or {}).get("require_approval") or clip["category"] in self.approval_cats
                 db.table("clip_posts").update({
                     "caption": caption, "status": "awaiting_approval" if needs else "scheduled",
@@ -397,7 +427,7 @@ class Tick:
             for conn in self.connections(p["page_id"]):
                 try:
                     result = facebook.publish_reel(page["fb_page_id"], decrypt(conn["token_enc"]),
-                                                   db.public_url(clip["video_path"]), p.get("caption") or "")
+                                                   db.public_url(self.video_for(p, clip)), p.get("caption") or "")
                     break
                 except facebook.TokenError as e:
                     self.mark_invalid(conn, page.get("name"), e)
@@ -408,7 +438,9 @@ class Tick:
                 db.table("clip_posts").update({"status": "posted", "fb_video_id": result, "posted_at": self.now.isoformat(),
                                                "error": None, "post_now": False}).eq("id", p["id"]).execute()
                 log.info("posted %s to %s", clip.get("topic"), page.get("name"))
-                self.add_egress(int((clip.get("script") or {}).get("bytes") or DEFAULT_POST_BYTES))
+                ab = (clip.get("script") or {}).get("ab") or {}
+                size = ab.get("bytes") if self.video_for(p, clip) == ab.get("video_path") else (clip.get("script") or {}).get("bytes")
+                self.add_egress(int(size or DEFAULT_POST_BYTES))
             else:
                 db.table("clip_posts").update({"status": "failed", "error": error[:1000]}).eq("id", p["id"]).execute()
                 self.alert(f"โพสต์ลงเพจ {_esc(page.get('name'))} ไม่สำเร็จ: {_esc(error)}")
@@ -446,6 +478,54 @@ class Tick:
                 self.refresh_message(cid)
             except Exception as e:
                 log.warning("refresh message failed: %s", e)
+
+    # ── Learning, topic bank, A/B ────────────────────────────────────────────
+
+    @staticmethod
+    def video_for(post: dict, clip: dict) -> str:
+        ab = (clip.get("script") or {}).get("ab") or {}
+        if ab.get("video_path") and (ab.get("posts") or {}).get(post["id"]) == "B":
+            return ab["video_path"]
+        return clip["video_path"]
+
+    def category_weights(self, page_ids: list[str]) -> dict[str, dict[str, float]]:
+        """Per page: average Reel plays of each category / the page's overall average, from the last 21 days.
+        A page needs 10+ measured Reels and a category 3+ before it moves away from an equal share;
+        weights stay between 0.4 and 2.5 so weaker categories still get tested."""
+        since = (self.now - timedelta(days=21)).isoformat()
+        try:
+            rows = (db.table("post_stats").select("page_id,plays,clip_posts!inner(posted_at,clips(category))")
+                    .gte("clip_posts.posted_at", since).not_.is_("plays", "null").limit(3000).execute().data)
+        except Exception as e:
+            log.warning("learning skipped: %s", e)
+            return {}
+        out: dict[str, dict[str, float]] = {}
+        for pid in page_ids:
+            mine = [r for r in rows if r["page_id"] == pid]
+            if len(mine) < 10:
+                continue
+            avg = sum(r["plays"] for r in mine) / len(mine) or 1
+            by_cat: dict[str, list[int]] = {}
+            for r in mine:
+                cat = ((r.get("clip_posts") or {}).get("clips") or {}).get("category")
+                if cat:
+                    by_cat.setdefault(cat, []).append(r["plays"])
+            w = {c: round(min(2.5, max(0.4, (sum(v) / len(v)) / avg)), 2) for c, v in by_cat.items() if len(v) >= 3}
+            if w:
+                out[pid] = w
+        return out
+
+    def take_banked_topic(self, clip_id: str, category: str) -> str | None:
+        """Use the oldest topic the owner saved for this category, then remove it from the bank."""
+        bank = db.settings().get("topic_bank") or []
+        for i, t in enumerate(bank):
+            if isinstance(t, dict) and t.get("category") == category and str(t.get("topic", "")).strip():
+                rest = bank[:i] + bank[i + 1:]
+                db.set_setting("topic_bank", rest)
+                db.table("clips").update({"topic": t["topic"].strip()}).eq("id", clip_id).execute()
+                log.info("using banked topic: %s", t["topic"])
+                return t["topic"].strip()
+        return None
 
     # ── Performance stats ────────────────────────────────────────────────────
 
@@ -512,10 +592,14 @@ class Tick:
         if self.state.get("cleanup_date") == self.now.date().isoformat():
             return
         old = (self.now - timedelta(days=3)).isoformat()
-        rows = (db.table("clips").select("id,video_path,clip_posts(status)").not_.is_("video_path", "null")
+        rows = (db.table("clips").select("id,video_path,script,clip_posts(status)").not_.is_("video_path", "null")
                 .lt("updated_at", old).limit(200).execute().data)
         done = [c for c in rows if not any(p["status"] in OPEN for p in c.get("clip_posts") or [])]
-        db.remove([c["video_path"] for c in done])
+        paths = [c["video_path"] for c in done]
+        for c in done:
+            ab = (c.get("script") or {}).get("ab") or {}
+            paths += [x for x in (ab.get("video_path"), ab.get("thumb_path")) if x]
+        db.remove(paths)
         for c in done:
             db.table("clips").update({"video_path": None}).eq("id", c["id"]).execute()
         self.state["cleanup_date"] = self.now.date().isoformat()

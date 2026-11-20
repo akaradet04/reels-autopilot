@@ -24,7 +24,7 @@ FORMAT = """
 ตอบเป็น JSON อย่างเดียว ตามโครงสร้างนี้:
 {{
   "topic": "หัวข้อของคลิปนี้ 1 บรรทัด",
-  "hook": "หัวเรื่องตัวใหญ่บนจอ ไม่เกิน 18 ตัวอักษร ดึงดูดให้หยุดดู",
+  "hook": "หัวเรื่องตัวใหญ่บนจอ ไม่เกิน 18 ตัวอักษร ดึงดูดให้หยุดดู",{hook_b_field}
   "keyword": "คำสำคัญบนจอ ไม่เกิน 18 ตัวอักษร",
   "segments": [
     {{"say": "ประโยคที่พากย์", "show": "ข้อความบนจอ สั้นกว่าที่พากย์ แบ่งบรรทัดด้วย | บรรทัดละไม่เกิน 18 ตัวอักษร ไม่เกิน 2 บรรทัด"}}
@@ -107,20 +107,28 @@ def _recent_block(recent: list[str]) -> str:
     return "หัวข้อที่เคยทำไปแล้ว ห้ามซ้ำหรือคล้าย:\n- " + "\n- ".join(recent[:40]) + "\n"
 
 
+def _banned_hit(data: dict, banned: list[str]) -> list[str]:
+    text = json.dumps({k: data.get(k) for k in ("topic", "hook", "hook_b", "keyword", "segments", "cta", "captions")},
+                      ensure_ascii=False).lower()
+    return [w for w in banned if w and w.lower() in text]
+
+
 def write(category: str, style: dict, n_captions: int, providers: dict, recent: list[str],
-          topic: str | None = None, feeds: list[str] | None = None) -> dict:
+          topic: str | None = None, feeds: list[str] | None = None,
+          banned: list[str] | None = None, hook_b: bool = False) -> dict:
+    banned = [w.strip() for w in (banned or []) if isinstance(w, str) and w.strip()]
     cat = CATEGORIES[category]
     duration = int(style.get("duration", 45))
     candidates = []
     news_field = ""
     if category == "news" and not topic:
-        candidates = [c for c in news.trends() + news.headlines(feeds or []) if _allowed(c)]
+        candidates = [c for c in news.trends() + news.headlines(feeds or []) if _allowed(c) and not _banned_item(c, banned)]
         if not candidates:
             raise RuntimeError("ดึงข่าวไม่ได้ ทั้ง Google Trends และ RSS")
         news_field = ',\n  "source_index": 0'
     elif category == "news" and topic:
         # A typed news topic is searched in real sources first. The model never writes news from memory.
-        candidates = [c for c in news.search(_search_terms(topic, providers), feeds or []) if _allowed(c)]
+        candidates = [c for c in news.search(_search_terms(topic, providers), feeds or []) if _allowed(c) and not _banned_item(c, banned)]
         candidates.sort(key=lambda c: c["published"].timestamp() if c.get("published") else 0, reverse=True)  # newest first
         if not candidates:
             raise RuntimeError(f"ไม่พบข่าวล่าสุดเรื่อง “{topic}” ในแหล่งข่าว ระบบจึงไม่เขียนบทเอง เพื่อกันแต่งเรื่อง")
@@ -129,12 +137,14 @@ def write(category: str, style: dict, n_captions: int, providers: dict, recent: 
     fmt = FORMAT.format(
         captions_hint=", ".join(f'"คำบรรยายเพจที่ {i + 1}"' for i in range(n_captions)),
         n_captions=n_captions, chars=int(duration * chars_per_sec(providers, style)), duration=duration, news_field=news_field,
+        hook_b_field=('\n  "hook_b": "หัวเรื่องแบบที่ 2 สำหรับทดสอบ เล่ามุมต่างจาก hook ไม่เกิน 18 ตัวอักษร",' if hook_b else ""),
     )
     parts = [
         "คุณเป็นคนเขียนบทคลิป Facebook Reels ภาษาไทย สำหรับคนไทยอายุ 23-60 ปี",
         f"หมวด: {cat['label']}",
         f"แนวทาง: {cat['guide']}",
         _recent_block(recent),
+        ("ห้ามพูดถึงหรือใช้คำเหล่านี้เด็ดขาด: " + ", ".join(banned)) if banned else "",
     ]
     grounded = bool(topic and candidates)
     if grounded:
@@ -182,8 +192,18 @@ def write(category: str, style: dict, n_captions: int, providers: dict, recent: 
             real = {c["source"] for c in candidates if c.get("source")}
             outlets = [s for s in (data.get("sources") or []) if isinstance(s, str) and s in real]
             data["sources"] = outlets or list(dict.fromkeys(c["source"] for c in candidates if c.get("source")))[:3]
+    hits = _banned_hit(data, banned)
+    if hits:
+        raise RuntimeError(f"บทมีคำต้องห้าม ({', '.join(hits[:3])}) ระบบจะเขียนใหม่รอบหน้า")
+    if hook_b and not (isinstance(data.get("hook_b"), str) and data["hook_b"].strip() and data["hook_b"] != data["hook"]):
+        data.pop("hook_b", None)
     data["hashtags"] = list(dict.fromkeys((data.get("hashtags") or []) + cat["hashtags"]))[:6]
     return data
+
+
+def _banned_item(item: dict, banned: list[str]) -> bool:
+    text = f"{item.get('title', '')} {item.get('summary', '')}".lower()
+    return any(w.lower() in text for w in banned)
 
 
 def _validate(data: dict, n_captions: int) -> None:
