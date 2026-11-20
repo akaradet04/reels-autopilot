@@ -104,7 +104,7 @@ export default function Styles() {
   }
 
   return (
-    <div className="page-wrap">
+    <div className="page-wrap narrow">
       <div className="title-row">
         <div><div className="eyebrow">หน้าตาคลิปที่แต่ละเพจเลือกใช้</div><h1>สไตล์</h1></div>
         {canEdit && <button className="btn tint small" onClick={create}>+ สไตล์ใหม่</button>}

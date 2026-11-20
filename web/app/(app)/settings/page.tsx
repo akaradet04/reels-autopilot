@@ -1,5 +1,7 @@
 "use client";
 
+import Link from "next/link";
+
 import { useState } from "react";
 import { useMe } from "@/components/Shell";
 import SignOut from "@/components/SignOut";
@@ -52,7 +54,7 @@ export default function SettingsPage() {
     }
   }
 
-  if (!data) return <div className="page-wrap"><div className="empty"><span className="spinner" /></div></div>;
+  if (!data) return <div className="page-wrap narrow"><div className="empty"><span className="spinner" /></div></div>;
   const { s, pages, conns, team } = data;
   const providers = s.providers ?? {};
   const pageName = (id: string) => pages.find((p) => p.id === id)?.name ?? "เพจที่ไม่มีสิทธิ์ดู";
@@ -60,8 +62,12 @@ export default function SettingsPage() {
   conns.forEach((c) => connsByUser.set(c.user_id, [...(connsByUser.get(c.user_id) ?? []), c]));
 
   return (
-    <div className="page-wrap">
+    <div className="page-wrap narrow">
       <div className="title-row"><div><div className="eyebrow">{me.email} · {ROLE_LABEL[me.role!]}</div><h1>ตั้งค่า</h1></div></div>
+
+      <div className="group">
+        <Link href="/styles" className="row chev"><div className="grow">สไตล์คลิป<div className="sub">สี เสียง พื้นหลัง โลโก้</div></div></Link>
+      </div>
 
       {/* ── Posting ── */}
       <div className="section-label">การโพสต์</div>

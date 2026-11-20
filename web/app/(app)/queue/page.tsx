@@ -39,7 +39,7 @@ export default function Queue() {
   const { data, reload } = useLoad(() => load(filter), [filter], 30_000);
 
   return (
-    <div className="page-wrap">
+    <div className="page-wrap narrow">
       <div className="title-row">
         <div>
           <div className="eyebrow">คลิปโพสต์เองตามเวลา กดเพื่อเปลี่ยนได้</div>

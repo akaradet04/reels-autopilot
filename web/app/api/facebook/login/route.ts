@@ -3,7 +3,7 @@ import { NextResponse } from "next/server";
 import { requireRole } from "@/lib/auth";
 import { facebookApp } from "@/lib/facebookApp";
 
-const SCOPES = ["pages_show_list", "pages_read_engagement", "pages_manage_posts", "business_management"];
+const SCOPES = ["pages_show_list", "pages_read_engagement", "pages_manage_posts", "read_insights", "business_management"];
 
 export async function GET(req: Request) {
   const auth = await requireRole("admin");

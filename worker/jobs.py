@@ -63,7 +63,7 @@ class Tick:
     def run(self) -> None:
         for name, step in [("tokens", self.check_tokens), ("plan", self.plan), ("produce", self.produce),
                            ("notify", self.notify), ("publish", self.publish), ("delete", self.deletions),
-                           ("summary", self.summary), ("cleanup", self.cleanup)]:
+                           ("stats", self.stats), ("summary", self.summary), ("cleanup", self.cleanup)]:
             try:
                 step()
             except Exception as e:
@@ -97,9 +97,15 @@ class Tick:
                 try:
                     info = facebook.page_info(p["fb_page_id"], decrypt(c["token_enc"]))
                     db.table("fb_connections").update({"last_checked_at": self.now.isoformat()}).eq("id", c["id"]).execute()
+                    followers = info.get("followers_count") or info.get("fan_count")
+                    if followers is not None:
+                        try:
+                            db.table("page_stats").upsert({"page_id": p["id"], "day": today, "followers": followers}).execute()
+                        except Exception as e:  # stats are nice to have; never block the token check
+                            log.warning("page_stats save failed: %s", e)
                     db.table("pages").update({
                         "name": info.get("name") or p["name"],
-                        "followers": info.get("followers_count") or info.get("fan_count"),
+                        "followers": followers,
                         "picture_url": (info.get("picture") or {}).get("data", {}).get("url"),
                     }).eq("id", p["id"]).execute()
                 except facebook.TokenError as e:
@@ -376,6 +382,47 @@ class Tick:
                 self.refresh_message(cid)
             except Exception as e:
                 log.warning("refresh message failed: %s", e)
+
+    # ── Performance stats ────────────────────────────────────────────────────
+
+    def stats(self) -> None:
+        """Refresh Facebook numbers for Reels posted in the last 14 days: every 3 h for 2 days, then daily."""
+        since = (self.now - timedelta(days=14)).isoformat()
+        try:
+            posts = (db.table("clip_posts").select("id,page_id,fb_video_id,posted_at,post_stats(fetched_at)")
+                     .eq("status", "posted").not_.is_("fb_video_id", "null").gte("posted_at", since)
+                     .order("posted_at", desc=True).limit(300).execute().data)
+        except Exception as e:  # stats tables not created yet (0002_stats.sql); posting must not suffer
+            log.warning("stats skipped: %s", str(e)[:200])
+            return
+        due = []
+        for p in posts:
+            st = p.get("post_stats")
+            st = st[0] if isinstance(st, list) and st else st
+            age = self.now - _dt(p["posted_at"])
+            every = timedelta(hours=3) if age < timedelta(days=2) else timedelta(hours=24)
+            if not st or self.now - _dt(st["fetched_at"]) >= every:
+                due.append(p)
+        tokens: dict[str, str | None] = {}
+        for p in due[:80]:
+            if p["page_id"] not in tokens:
+                conns = self.connections(p["page_id"])
+                tokens[p["page_id"]] = decrypt(conns[0]["token_enc"]) if conns else None
+            token = tokens[p["page_id"]]
+            if not token:
+                continue
+            row = {"post_id": p["id"], "page_id": p["page_id"], "fetched_at": self.now.isoformat()}
+            try:
+                row.update(facebook.reel_stats(p["fb_video_id"], token), error=None)
+            except facebook.PermissionMissing as e:
+                if self.state.get("stats_perm_alert") != self.now.date().isoformat():
+                    self.state["stats_perm_alert"] = self.now.date().isoformat()
+                    self.alert("ดึงสถิติคลิปไม่ได้: กุญแจ Facebook ยังไม่มีสิทธิ์ดูสถิติ เข้าเว็บ หน้าเพจ แล้วกดเชื่อมต่อ Facebook ใหม่")
+                log.warning("stats permission missing: %s", e)
+                return
+            except Exception as e:
+                row["error"] = str(e)[:500]
+            db.table("post_stats").upsert(row).execute()
 
     # ── Daily summary and cleanup ────────────────────────────────────────────
 

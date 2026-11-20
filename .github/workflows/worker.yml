@@ -1,8 +1,11 @@
 name: worker
 
+# GitHub's schedule is best-effort and can skip hours, so one run stays alive for ~5.5 hours,
+# ticking every 10 minutes, then starts the next run itself. The schedule is only a safety net
+# that restarts the chain if it ever breaks.
 on:
   schedule:
-    - cron: "*/30 * * * *"
+    - cron: "7 */2 * * *"
   workflow_dispatch:
 
 # One run at a time; a run started while another is busy waits instead of overlapping.
@@ -10,10 +13,14 @@ concurrency:
   group: worker
   cancel-in-progress: false
 
+permissions:
+  contents: read
+  actions: write
+
 jobs:
   tick:
     runs-on: ubuntu-latest
-    timeout-minutes: 40
+    timeout-minutes: 350
     steps:
       - uses: actions/checkout@v4
 
@@ -34,11 +41,25 @@ jobs:
 
       - run: pip install -r worker/requirements.txt
 
-      - name: Run one tick
+      - name: Tick every 10 minutes
         env:
           SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
           SUPABASE_SERVICE_KEY: ${{ secrets.SUPABASE_SERVICE_KEY }}
           ENCRYPTION_KEY: ${{ secrets.ENCRYPTION_KEY }}
           FB_GRAPH_VERSION: ${{ vars.FB_GRAPH_VERSION || 'v23.0' }}
           WORK_DIR: ${{ runner.temp }}/work
-        run: python -m worker tick
+        run: |
+          end=$(( $(date +%s) + 330 * 60 ))
+          while [ "$(date +%s)" -lt "$end" ]; do
+            started=$(date +%s)
+            python -m worker tick || echo "tick failed, trying again next round"
+            wait=$(( 600 - ($(date +%s) - started) ))
+            [ "$wait" -gt 0 ] && [ $(( $(date +%s) + wait )) -lt "$end" ] && sleep "$wait" || true
+            [ $(( $(date +%s) + 600 )) -ge "$end" ] && break
+          done
+
+      - name: Start the next run
+        if: always()
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: gh workflow run worker.yml --ref "${{ github.ref_name }}"

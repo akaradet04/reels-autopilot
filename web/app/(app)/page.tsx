@@ -89,7 +89,7 @@ export default function Home() {
   const pct = data && data.plannedToday ? Math.round((data.producedToday / data.plannedToday) * 100) : 0;
 
   return (
-    <div className="page-wrap">
+    <div className="page-wrap narrow">
       <div className="title-row">
         <div>
           <div className="eyebrow">{longDate()}</div>

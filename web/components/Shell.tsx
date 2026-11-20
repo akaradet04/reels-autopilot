@@ -10,11 +10,12 @@ import { Icon, ToastProvider } from "./ui";
 const MeCtx = createContext<Profile | null>(null);
 export const useMe = () => useContext(MeCtx)!;
 
-const NAV = [
+const NAV: { href: string; label: string; icon: () => JSX.Element; badge?: boolean; desk?: boolean }[] = [
   { href: "/", label: "หน้าหลัก", icon: Icon.home },
   { href: "/queue", label: "คิวคลิป", icon: Icon.queue, badge: true },
+  { href: "/stats", label: "ผลงาน", icon: Icon.chart },
   { href: "/pages", label: "เพจ", icon: Icon.pages },
-  { href: "/styles", label: "สไตล์", icon: Icon.style },
+  { href: "/styles", label: "สไตล์", icon: Icon.style, desk: true },
   { href: "/settings", label: "ตั้งค่า", icon: Icon.settings },
 ];
 
@@ -39,10 +40,10 @@ export default function Shell({ me, children }: { me: Profile; children: React.R
         <div className="shell">
           <nav className="nav" aria-label="เมนูหลัก">
             <div className="brand"><span className="app-icon" style={{ width: 30, height: 30, borderRadius: 8, margin: 0 }}><Icon.logo /></span>Reels Autopilot</div>
-            {NAV.map(({ href, label, icon: I, badge }) => {
+            {NAV.map(({ href, label, icon: I, badge, desk }) => {
               const active = href === "/" ? path === "/" : path.startsWith(href);
               return (
-                <Link key={href} href={href} aria-current={active ? "page" : undefined}>
+                <Link key={href} href={href} aria-current={active ? "page" : undefined} className={desk ? "desk" : undefined}>
                   <I />
                   <span>{label}</span>
                   {badge && waiting > 0 && <span className="badge">{waiting}</span>}

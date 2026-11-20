@@ -155,6 +155,7 @@ export const Icon = {
   pages: () => (<svg viewBox="0 0 24 24" {...s}><rect x="3" y="4" width="18" height="16" rx="3" /><path d="M3 9h18M8 4v5" /></svg>),
   style: () => (<svg viewBox="0 0 24 24" {...s}><circle cx="12" cy="12" r="9" /><circle cx="8.5" cy="10" r="1.2" fill="currentColor" /><circle cx="12" cy="7.5" r="1.2" fill="currentColor" /><circle cx="15.5" cy="10" r="1.2" fill="currentColor" /><path d="M12 21a3 3 0 0 1 0-6h2" /></svg>),
   settings: () => (<svg viewBox="0 0 24 24" {...s}><circle cx="12" cy="12" r="3" /><path d="M12 2v3M12 19v3M2 12h3M19 12h3M4.9 4.9 7 7M17 17l2.1 2.1M4.9 19.1 7 17M17 7l2.1-2.1" /></svg>),
+  chart: () => (<svg viewBox="0 0 24 24" {...s}><path d="M4 20V10M10 20V4M16 20v-7M22 20H2" /></svg>),
   play: () => (<svg viewBox="0 0 24 24" width="14" height="14"><path d="M8 5v14l11-7z" fill="currentColor" /></svg>),
   logo: () => (<svg viewBox="0 0 24 24" width="22" height="22" {...s}><rect x="7" y="3" width="10" height="18" rx="2.5" /><path d="m10.5 9.5 3.5 2.5-3.5 2.5z" fill="currentColor" /></svg>),
 };

@@ -73,7 +73,7 @@ export default function Pages() {
   }
 
   return (
-    <div className="page-wrap">
+    <div className="page-wrap narrow">
       <div className="title-row">
         <div>
           <div className="eyebrow">{data ? `${data.pages.length} เพจ · เปิดอยู่ ${on}` : " "}</div>
