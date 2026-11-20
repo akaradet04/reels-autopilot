@@ -33,3 +33,7 @@ create policy page_stats_read on public.page_stats for select to authenticated
 drop policy if exists post_stats_read on public.post_stats;
 create policy post_stats_read on public.post_stats for select to authenticated
   using (public.can_see_page(page_id));
+
+-- Newer Supabase projects do not grant API roles on new tables automatically.
+grant select, insert, update, delete on public.page_stats, public.post_stats to service_role;
+grant select on public.page_stats, public.post_stats to authenticated;
