@@ -154,7 +154,7 @@ def render(script: dict, voice: Path, spans: list[tuple[float, float]], bg: Path
         "-filter_complex", ";".join(chain),
         "-map", "[v]", "-map", "[a]", "-t", f"{total:.2f}",
         # The bitrate cap keeps busy footage (stars, water) from producing 30 MB files. Facebook re-encodes anyway.
-        "-c:v", "libx264", "-preset", "veryfast", "-crf", "22", "-maxrate", "4000k", "-bufsize", "8000k",
+        "-c:v", "libx264", "-preset", "veryfast", "-crf", "24", "-maxrate", "2500k", "-bufsize", "5000k",
         "-pix_fmt", "yuv420p", "-r", str(FPS),
         "-c:a", "aac", "-ar", "48000", "-b:a", "160k", "-movflags", "+faststart", out.name,
     ]
