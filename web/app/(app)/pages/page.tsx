@@ -60,6 +60,17 @@ export default function Pages() {
   }
 
   const on = data?.pages.filter((p) => p.enabled).length ?? 0;
+  const allAuto = !!data && data.pages.length > 0 && data.pages.every((p) => !p.require_approval);
+
+  async function setAllAuto(auto: boolean) {
+    if (!data) return;
+    const need = !auto;
+    setData((d) => d && { ...d, pages: d.pages.map((x) => ({ ...x, require_approval: need })) });
+    const ids = data.pages.map((x) => x.id);
+    const { error } = await supabase().from("pages").update({ require_approval: need }).in("id", ids);
+    if (error) { toast(error.message); reload(); }
+    else toast(auto ? "ทุกเพจโพสต์อัตโนมัติ ไม่ต้องรออนุมัติ" : "ทุกเพจต้องให้คุณอนุมัติก่อนโพสต์");
+  }
 
   return (
     <div className="page-wrap">
@@ -79,6 +90,15 @@ export default function Pages() {
         </div>
       )}
 
+      {data && data.pages.length > 0 && canEdit && (
+        <div className="group">
+          <div className="row">
+            <div className="grow">อนุมัติอัตโนมัติทุกเพจ<div className="sub">เปิด = โพสต์ตามเวลาเลย ไม่ต้องรอกดอนุมัติ · ปิด = รอคุณอนุมัติทุกคลิป · ตั้งแยกรายเพจได้ในหน้าตั้งค่าเพจ</div></div>
+            <Switch label="อนุมัติอัตโนมัติทุกเพจ" checked={allAuto} onChange={setAllAuto} />
+          </div>
+        </div>
+      )}
+
       {data && data.pages.length > 0 && (
         <div className="group">
           {data.pages.map((p) => {
@@ -92,7 +112,7 @@ export default function Pages() {
                   <div className="grow">
                     <div>{p.name} {broken && <span className="tag red">กุญแจใช้ไม่ได้</span>}</div>
                     <div className="sub">
-                      {compact(p.followers)} · {p.clips_per_day} คลิป/วัน · {p.categories.length ? p.categories.map(catShort).join(", ") : "ยังไม่ได้เลือกหมวด"}
+                      {compact(p.followers)} · {p.clips_per_day} คลิป/วัน · {p.categories.length ? p.categories.map(catShort).join(", ") : "ยังไม่ได้เลือกหมวด"} · {p.require_approval ? "รออนุมัติ" : "โพสต์อัตโนมัติ"}
                     </div>
                   </div>
                 </button>
@@ -191,7 +211,7 @@ function PageSheet({ page, styles, conns, onClose, onSaved }: {
           </select>
         </div>
         <div className="row">
-          <div className="grow">ต้องอนุมัติก่อนโพสต์<div className="sub">ปิดไว้ = โพสต์อัตโนมัติตามเวลา</div></div>
+          <div className="grow">ต้องอนุมัติก่อนโพสต์<div className="sub">เปิด = รอคุณอนุมัติทุกคลิป · ปิด = โพสต์อัตโนมัติตามเวลา</div></div>
           <Switch label="ต้องอนุมัติก่อนโพสต์" checked={p.require_approval} onChange={(v) => set("require_approval", v)} />
         </div>
       </div>
