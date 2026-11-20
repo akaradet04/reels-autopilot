@@ -1,7 +1,7 @@
 import { adminSupabase } from "./supabase/admin";
 import { runWorkerNow } from "./dispatch";
 
-export type ClipAction = "post" | "approve" | "delay" | "cancel" | "delete";
+export type ClipAction = "post" | "approve" | "delay" | "cancel" | "delete" | "retry";
 
 const OPEN = ["pending", "scheduled", "notified", "awaiting_approval"];
 const MIN = 60_000;
@@ -84,6 +84,29 @@ export async function applyClipAction(clipId: string, action: ClipAction, actorI
     await db.from("clip_posts").update({ status: "delete_requested" }).in("id", live.map((p: any) => p.id));
     await runWorkerNow();
     return `กำลังลบ ${live.length} โพสต์`;
+  }
+
+  if (action === "retry") {
+    const failed = (posts ?? []).filter((p: any) => p.status === "failed");
+    if (clip.status === "failed") {
+      // Production failed: make it again, then post to every page whose post failed.
+      await db.from("clips").update({ status: "planned", attempts: 0, error: null, produce_after: new Date().toISOString() }).eq("id", clipId);
+      if (failed.length) {
+        let t = now + 60 * MIN;
+        for (const p of failed) {
+          await db.from("clip_posts").update({ status: "pending", error: null, scheduled_at: new Date(t).toISOString() }).eq("id", p.id);
+          t += gapMs();
+        }
+      }
+      return "กำลังผลิตคลิปใหม่ แล้วจะโพสต์ตามเวลาใหม่";
+    }
+    if (!failed.length) return "ไม่มีโพสต์ที่ล้มเหลว";
+    let t = now;
+    for (const [i, p] of failed.entries()) {
+      if (i > 0) t += gapMs();
+      await db.from("clip_posts").update({ status: "scheduled", error: null, post_now: true, scheduled_at: new Date(t).toISOString() }).eq("id", p.id);
+    }
+    return `จะลองโพสต์ใหม่ ${failed.length} โพสต์ภายใน 10 นาที`;
   }
 
   throw new Error("ไม่รู้จักคำสั่งนี้");

@@ -7,18 +7,23 @@ import { api, Avatar, must, Sheet, Stepper, Switch, useLoad, useToast } from "@/
 import { CATEGORIES, catShort } from "@/lib/categories";
 import { compact, shortTime } from "@/lib/format";
 import { supabase } from "@/lib/supabase/client";
+import { saveSetting } from "@/lib/settings";
 import type { Page, Style } from "@/lib/types";
 
 interface Conn { id: string; page_id: string; fb_user_name: string | null; role: string; status: string }
 
 async function load() {
   const db = supabase();
-  const [pages, styles, conns] = await Promise.all([
+  const [pages, styles, conns, appr] = await Promise.all([
     db.from("pages").select("*").order("created_at"),
     db.from("styles").select("id,name,config").order("created_at"),
     db.from("fb_connections").select("id,page_id,fb_user_name,role,status"),
+    db.from("settings").select("value").eq("key", "approval_categories").maybeSingle(),
   ]);
-  return { pages: must(pages) as Page[], styles: must(styles) as Style[], conns: (conns.data ?? []) as Conn[] };
+  return {
+    pages: must(pages) as Page[], styles: must(styles) as Style[], conns: (conns.data ?? []) as Conn[],
+    approvalCats: ((appr.data?.value as string[] | null) ?? []),
+  };
 }
 
 export default function Pages() {
@@ -60,6 +65,14 @@ export default function Pages() {
   }
 
   const on = data?.pages.filter((p) => p.enabled).length ?? 0;
+  async function toggleCat(slug: string) {
+    if (!data) return;
+    const next = data.approvalCats.includes(slug) ? data.approvalCats.filter((c) => c !== slug) : [...data.approvalCats, slug];
+    setData((d) => d && { ...d, approvalCats: next });
+    const err = await saveSetting("approval_categories", next);
+    if (err) { toast(err); reload(); }
+  }
+
   const allAuto = !!data && data.pages.length > 0 && data.pages.every((p) => !p.require_approval);
 
   async function setAllAuto(auto: boolean) {
@@ -96,6 +109,14 @@ export default function Pages() {
             <div className="grow">อนุมัติอัตโนมัติทุกเพจ<div className="sub">เปิด = โพสต์ตามเวลาเลย ไม่ต้องรอกดอนุมัติ · ปิด = รอคุณอนุมัติทุกคลิป · ตั้งแยกรายเพจได้ในหน้าตั้งค่าเพจ</div></div>
             <Switch label="อนุมัติอัตโนมัติทุกเพจ" checked={allAuto} onChange={setAllAuto} />
           </div>
+          <div className="row" style={{ flexDirection: "column", alignItems: "stretch", gap: 4 }}>
+            <div>หมวดที่ต้องรอคุณอนุมัติเสมอ<div className="sub" style={{ whiteSpace: "normal" }}>หมวดที่เลือกจะไม่โพสต์เองแม้เปิดอนุมัติอัตโนมัติ แนะนำให้เลือก "ข่าว" เพราะมีชื่อคนจริง</div></div>
+            <div className="chips" style={{ padding: "6px 0 2px" }}>
+              {CATEGORIES.map((c) => (
+                <button key={c.slug} type="button" aria-pressed={data.approvalCats.includes(c.slug)} onClick={() => toggleCat(c.slug)}>{c.short}</button>
+              ))}
+            </div>
+          </div>
         </div>
       )}
 
@@ -112,7 +133,7 @@ export default function Pages() {
                   <div className="grow">
                     <div>{p.name} {broken && <span className="tag red">กุญแจใช้ไม่ได้</span>}</div>
                     <div className="sub">
-                      {compact(p.followers)} · {p.clips_per_day} คลิป/วัน · {p.categories.length ? p.categories.map(catShort).join(", ") : "ยังไม่ได้เลือกหมวด"} · {p.require_approval ? "รออนุมัติ" : "โพสต์อัตโนมัติ"}
+                      {compact(p.followers)} · {p.clips_per_day} คลิป/วัน · {p.categories.length ? p.categories.map(catShort).join(", ") : "ยังไม่ได้เลือกหมวด"} · {p.require_approval ? "รออนุมัติทุกคลิป" : data.approvalCats.length ? `อัตโนมัติ ยกเว้น${data.approvalCats.map(catShort).join(" ")}` : "โพสต์อัตโนมัติ"}
                     </div>
                   </div>
                 </button>

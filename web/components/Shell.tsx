@@ -16,6 +16,7 @@ const NAV: { href: string; label: string; icon: () => JSX.Element; badge?: boole
   { href: "/stats", label: "ผลงาน", icon: Icon.chart },
   { href: "/pages", label: "เพจ", icon: Icon.pages },
   { href: "/styles", label: "สไตล์", icon: Icon.style, desk: true },
+  { href: "/status", label: "สถานะระบบ", icon: Icon.pulse, desk: true },
   { href: "/settings", label: "ตั้งค่า", icon: Icon.settings },
 ];
 

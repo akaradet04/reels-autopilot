@@ -129,6 +129,13 @@ export default function Home() {
             </div>
             <Switch label="เปิดปิดระบบอัตโนมัติ" checked={data.auto} onChange={setAuto} disabled={me.role !== "owner"} />
           </div>
+          <Link href="/status" className="row chev">
+            <div className="grow">สถานะระบบ<div className="sub">เครื่องผลิตคลิป แบนด์วิดท์ งานที่ล้มเหลว</div></div>
+            {(() => {
+              const ago = data.lastTick ? (Date.now() - new Date(data.lastTick).getTime()) / 60000 : 999;
+              return <span className={`tag ${ago <= 25 && data.failedToday === 0 ? "green" : "orange"}`}>{ago <= 25 ? (data.failedToday ? `ล้มเหลว ${data.failedToday}` : "ปกติ") : "เครื่องหยุด"}</span>;
+            })()}
+          </Link>
         </div>
 
         <div className="stats">

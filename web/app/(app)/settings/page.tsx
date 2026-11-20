@@ -66,7 +66,9 @@ export default function SettingsPage() {
       <div className="title-row"><div><div className="eyebrow">{me.email} · {ROLE_LABEL[me.role!]}</div><h1>ตั้งค่า</h1></div></div>
 
       <div className="group">
+        <Link href="/status" className="row chev"><div className="grow">สถานะระบบ<div className="sub">เครื่องผลิตคลิป แบนด์วิดท์ งานที่ล้มเหลว</div></div></Link>
         <Link href="/styles" className="row chev"><div className="grow">สไตล์คลิป<div className="sub">สี เสียง พื้นหลัง โลโก้</div></div></Link>
+        {owner && <Link href="/backup" className="row chev"><div className="grow">สำรองและย้ายระบบ<div className="sub">ไฟล์สำรอง และเช็กลิสต์ก่อนเลิกใช้คอมนี้</div></div></Link>}
       </div>
 
       {/* ── Posting ── */}

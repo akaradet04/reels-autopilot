@@ -5,7 +5,7 @@ import logging
 import random
 import shutil
 import time
-from datetime import datetime, timedelta
+from datetime import date, datetime, timedelta
 
 import httpx
 
@@ -44,6 +44,19 @@ def _esc(s) -> str:
     return html.escape(str(s or ""))
 
 
+FREE_EGRESS_BYTES = 5 * 1024 ** 3  # Supabase free plan, per billing cycle
+DEFAULT_POST_BYTES = 7 * 1024 ** 2  # until real sizes are known
+
+
+def cycle_start(now: datetime, billing_day: int) -> str:
+    """First day of the current Supabase billing cycle (the cycle restarts on billing_day each month)."""
+    d = now.date()
+    if d.day >= billing_day:
+        return d.replace(day=billing_day).isoformat()
+    first = d.replace(day=1) - timedelta(days=1)
+    return first.replace(day=min(billing_day, 28)).isoformat()
+
+
 class Tick:
     def __init__(self):
         self.now = datetime.now(TZ)
@@ -52,6 +65,40 @@ class Tick:
         self.chat = self.s.get("telegram_chat_id")
         self.auto = bool(self.s.get("automation_enabled", True))
         self.providers = self.s.get("providers") or {}
+        self.approval_cats = set(self.s.get("approval_categories") or [])
+        self.billing_day = int(self.s.get("billing_day") or 18)
+        self.usage = self._usage()
+        self.state["usage"] = self.usage
+
+    def _usage(self) -> dict:
+        u = dict(self.state.get("usage") or {})
+        start = cycle_start(self.now, self.billing_day)
+        if u.get("cycle") != start:
+            u = {"cycle": start, "egress_bytes": 0, "posts": 0, "daily": {}}
+        return u
+
+    def add_egress(self, n: int) -> None:
+        today = self.now.date().isoformat()
+        self.usage["egress_bytes"] = int(self.usage.get("egress_bytes", 0)) + n
+        self.usage["posts"] = int(self.usage.get("posts", 0)) + 1
+        daily = dict(self.usage.get("daily") or {})
+        daily[today] = int(daily.get(today, 0)) + n
+        self.usage["daily"] = dict(sorted(daily.items())[-35:])
+        self.state["usage"] = self.usage
+
+    def daily_post_budget(self) -> tuple[int, int] | None:
+        """(bytes allowed today, bytes per post) so the month stays under the chosen share of free egress."""
+        pct = int(self.s.get("egress_budget_pct") or 70)
+        if pct >= 100:
+            return None
+        budget = FREE_EGRESS_BYTES * pct / 100
+        used = int(self.usage.get("egress_bytes", 0))
+        start = datetime.fromisoformat(self.usage["cycle"]).date()
+        nxt = date(start.year + (start.month == 12), start.month % 12 + 1, min(self.billing_day, 28))
+        days_left = max(1, (nxt - self.now.date()).days)
+        posts = int(self.usage.get("posts", 0))
+        per_post = used // posts if posts >= 5 else DEFAULT_POST_BYTES
+        return max(0, int((budget - used) / days_left)), max(per_post, 1)
 
     def alert(self, text: str) -> None:
         log.warning(text)
@@ -123,6 +170,21 @@ class Tick:
         pages = db.table("pages").select("*").eq("enabled", True).execute().data
         gap = self.s.get("page_gap_minutes") or [20, 40]
         plan = plan_day(pages, self.now.date(), self.now, int(self.s.get("max_posts_per_page", 8)), tuple(gap))
+        limit = self.daily_post_budget()
+        if limit and plan:
+            allow, per_post = limit
+            kept, cost = [], 0
+            for c in plan:
+                need = per_post * len(c["posts"])
+                if kept and cost + need > allow:
+                    continue
+                kept.append(c)
+                cost += need
+            if len(kept) < len(plan):
+                self.state["throttled"] = {"date": today, "planned": len(plan), "kept": len(kept)}
+                self.alert(f"ลดจำนวนคลิปวันนี้จาก {len(plan)} เหลือ {len(kept)} คลิป "
+                           f"เพื่อไม่ให้แบนด์วิดท์ Supabase เกิน {self.s.get('egress_budget_pct') or 70}% ของโควตาฟรีเดือนนี้")
+                plan = kept
         n_posts = 0
         for c in plan:
             clip = db.table("clips").insert({
@@ -201,6 +263,7 @@ class Tick:
             if duration > 89:
                 raise RuntimeError(f"คลิปยาว {duration:.0f} วินาที เกินที่ Reels รับได้ (90 วินาที)")
             thumb = render.thumbnail(out, work / "thumb.jpg")
+            script["bytes"] = out.stat().st_size
             video_path = db.upload(out, f"videos/{cid}.mp4", "video/mp4")
             thumb_path = db.upload(thumb, f"thumbs/{cid}.jpg", "image/jpeg")
 
@@ -216,7 +279,7 @@ class Tick:
             credit = f"\n\nที่มา: {', '.join(script['sources'])}" if script.get("sources") else ""
             for i, p in enumerate(posts):
                 caption = f"{script['captions'][i]}{credit}\n\n{tags}".strip()
-                needs = (p.get("pages") or {}).get("require_approval")
+                needs = (p.get("pages") or {}).get("require_approval") or clip["category"] in self.approval_cats
                 db.table("clip_posts").update({
                     "caption": caption, "status": "awaiting_approval" if needs else "scheduled",
                 }).eq("id", p["id"]).execute()
@@ -304,7 +367,7 @@ class Tick:
             .eq("status", "awaiting_approval").lt("scheduled_at", expire).execute()
 
         rows = (db.table("clip_posts")
-                .select("*, clips(status,video_path,topic), pages(name,fb_page_id,enabled)")
+                .select("*, clips(status,video_path,topic,script), pages(name,fb_page_id,enabled)")
                 .in_("status", ["scheduled", "notified"]).order("scheduled_at").execute().data)
         # post_now = someone pressed "post now": it goes out even while automation is paused or over the daily cap.
         due = [p for p in rows if _dt(p["scheduled_at"]) <= self.now and (self.auto or p["post_now"])]
@@ -345,6 +408,7 @@ class Tick:
                 db.table("clip_posts").update({"status": "posted", "fb_video_id": result, "posted_at": self.now.isoformat(),
                                                "error": None, "post_now": False}).eq("id", p["id"]).execute()
                 log.info("posted %s to %s", clip.get("topic"), page.get("name"))
+                self.add_egress(int((clip.get("script") or {}).get("bytes") or DEFAULT_POST_BYTES))
             else:
                 db.table("clip_posts").update({"status": "failed", "error": error[:1000]}).eq("id", p["id"]).execute()
                 self.alert(f"โพสต์ลงเพจ {_esc(page.get('name'))} ไม่สำเร็จ: {_esc(error)}")

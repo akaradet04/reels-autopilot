@@ -3,7 +3,7 @@ import { canAccessPages, requireRole } from "@/lib/auth";
 import { applyClipAction, type ClipAction } from "@/lib/clipActions";
 import { adminSupabase } from "@/lib/supabase/admin";
 
-const ACTIONS: ClipAction[] = ["post", "approve", "delay", "cancel", "delete"];
+const ACTIONS: ClipAction[] = ["post", "approve", "delay", "cancel", "delete", "retry"];
 
 export async function POST(req: Request, { params }: { params: { id: string } }) {
   const auth = await requireRole("reviewer");

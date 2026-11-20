@@ -387,3 +387,26 @@ textarea.field { resize: vertical; min-height: 110px; line-height: 1.5; }
   .card { padding: 16px; }
   .card-head .seg button { padding: 6px 11px; font-size: 13px; }
 }
+
+/* ── System status ── */
+.hero { display: flex; gap: 14px; align-items: center; padding: 18px 20px; border-radius: var(--r-card); background: var(--card); box-shadow: 0 0 0 0.5px var(--sep); }
+.hero b { font-size: 19px; }
+.hero .small { color: var(--muted); margin-top: 2px; }
+.hero-dot { width: 14px; height: 14px; border-radius: 50%; flex-shrink: 0; background: var(--green); box-shadow: 0 0 0 6px var(--green-tint); }
+.hero.warn .hero-dot { background: var(--orange); box-shadow: 0 0 0 6px var(--orange-tint); }
+.hero .grow { flex: 1; min-width: 0; }
+.meter-head { display: flex; justify-content: space-between; align-items: baseline; gap: 10px; flex-wrap: wrap; }
+.big-num { font-size: 28px; font-weight: 700; letter-spacing: -0.02em; font-variant-numeric: tabular-nums; }
+.meter { position: relative; height: 12px; border-radius: 999px; background: var(--fill); overflow: visible; }
+.meter i { position: absolute; left: 0; top: 0; bottom: 0; border-radius: 999px; background: linear-gradient(90deg, var(--blue), #5ac8fa); }
+.meter i.proj { background: var(--blue-tint); }
+.meter .limit { position: absolute; top: -4px; bottom: -4px; width: 2px; margin-left: -1px; background: var(--orange); border-radius: 2px; }
+.mini-bars { display: flex; align-items: flex-end; gap: 4px; height: 56px; }
+.mini-bars i { flex: 1; background: var(--blue-tint); border-radius: 4px 4px 2px 2px; min-height: 3px; }
+.mini-bars i:last-child { background: var(--blue); }
+.check-row { cursor: pointer; align-items: flex-start; position: relative; }
+.check-row input { position: absolute; opacity: 0; pointer-events: none; }
+.checkmark { width: 24px; height: 24px; border-radius: 50%; flex-shrink: 0; margin-top: 1px; box-shadow: inset 0 0 0 1.5px var(--muted); display: grid; place-items: center; transition: background 0.2s; }
+.check-row input:checked + .checkmark { background: var(--green); box-shadow: none; }
+.check-row input:checked + .checkmark::after { content: ""; width: 6px; height: 11px; border: solid #fff; border-width: 0 2.2px 2.2px 0; transform: translateY(-1px) rotate(45deg); }
+.check-row input:focus-visible + .checkmark { outline: 2px solid var(--blue); outline-offset: 2px; }
