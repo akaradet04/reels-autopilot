@@ -246,7 +246,8 @@ class Tick:
                       .gte("created_at", since).not_.is_("topic", "null").limit(60).execute().data]
 
             topic = clip.get("topic") or self.take_banked_topic(cid, clip["category"])
-            ab = self.ab_on and len(posts) >= 2
+            # News is excluded: headline B would not go through the fact-check against the source.
+            ab = self.ab_on and len(posts) >= 2 and clip["category"] != "news"
             script = scriptwriter.write(clip["category"], style, len(posts), self.providers, recent,
                                         topic=topic, feeds=self.s.get("news_feeds") or [],
                                         banned=self.banned, hook_b=ab)
