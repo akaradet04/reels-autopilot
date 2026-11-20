@@ -27,6 +27,8 @@ export async function POST(req: Request) {
     if (code && code === expected) {
       await adminSupabase().from("settings").upsert({ key: "telegram_chat_id", value: msg.chat.id });
       await tg("sendMessage", { chat_id: msg.chat.id, text: "เชื่อมต่อ Reels Autopilot แล้ว ต่อไปคลิปใหม่จะส่งมาที่นี่ก่อนโพสต์" });
+    } else if (chatId && String(msg.chat.id) === String(chatId)) {
+      await tg("sendMessage", { chat_id: msg.chat.id, text: "แชทนี้เชื่อมต่อกับ Reels Autopilot อยู่แล้ว ไม่ต้องทำอะไรเพิ่ม" });
     } else {
       await tg("sendMessage", { chat_id: msg.chat.id, text: "รหัสไม่ถูกต้อง เปิดหน้าตั้งค่าบนเว็บเพื่อดูรหัสล่าสุด" });
     }
